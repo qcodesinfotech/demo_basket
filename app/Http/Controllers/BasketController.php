@@ -3,26 +3,25 @@
 namespace App\Http\Controllers;
 
 use App\Models\Product;
+use App\Models\Basket;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Session;
+use Illuminate\Support\Facades\Auth;
 
 class BasketController extends Controller
 {
-
-
-
-    // second one half price
+    // Display the basket content
     public function index()
     {
+        $userId = Auth::id();
+        $baskets = Basket::where('user_id', $userId)->get();
         $products = Product::all();
-        $basket = Session::get('basket', []);
 
         $subtotal = 0;
         $discount = 0;
-
-        foreach ($basket as $sku => $item) {
-            $quantity = $item['quantity'];
-            $price = $item['price'];
+        // dd($baskets->toArray());
+        foreach ($baskets as $item) {
+            $quantity = $item->quantity;
+            $price = $item->product_price;
 
             // Standard total for this product
             $itemTotal = $price * $quantity;
@@ -45,65 +44,50 @@ class BasketController extends Controller
         }
 
         $total = $subtotalAfterDiscount + $delivery;
-
         return view('basket.index', compact(
-            'products',
-            'basket',
+            'baskets',
             'subtotal',
             'discount',
+            'products',
             'delivery',
             'total'
         ));
     }
 
-    // public function index()
-    // {
-    //     $products = Product::all();
-    //     $basket = Session::get('basket', []);
-
-    //     $subtotal = 0;
-
-    //     foreach ($basket as $item) {
-    //         $subtotal += $item['price'] * $item['quantity'];
-    //     }
-    //     if ($subtotal >= 90) {
-    //         $delivery = 0;
-    //     } elseif ($subtotal >= 50) {
-    //         $delivery = 2.95;
-    //     } else {
-    //         $delivery = 4.95;
-    //     }
-
-    //     $total = $subtotal + $delivery;
-
-    //     return view('basket.index', compact('products', 'basket', 'subtotal', 'delivery', 'total'));
-    // }
-
+    // Add product to the basket
     public function add(Request $request)
     {
         $sku = $request->input('sku');
         $product = Product::where('sku', $sku)->firstOrFail();
 
-        $basket = Session::get('basket', []);
+        // Check if the product already exists in the user's basket
+        $userId = Auth::id();
+        $basketItem = Basket::where('user_id', $userId)->where('sku', $sku)->first();
 
-        if (isset($basket[$sku])) {
-            $basket[$sku]['quantity'] += 1;
+        if ($basketItem) {
+            // If the product already exists, update the quantity
+            $basketItem->quantity += 1;
+            $basketItem->save();
         } else {
-            $basket[$sku] = [
-                'name' => $product->name,
-                'price' => $product->price,
+            // Otherwise, create a new basket item
+            Basket::create([
+                'user_id' => $userId,
+                'sku' => $product->sku,
+                'product_name' => $product->name,
+                'product_price' => $product->price,
                 'quantity' => 1,
-            ];
+            ]);
         }
-
-        Session::put('basket', $basket);
 
         return redirect()->route('basket.index')->with('success', 'Product added to basket!');
     }
 
+    // Clear the user's basket
     public function clear()
     {
-        Session::forget('basket');
+        $userId = Auth::id();
+        Basket::where('user_id', $userId)->delete();
+
         return redirect()->route('basket.index')->with('success', 'Basket cleared!');
     }
 }
