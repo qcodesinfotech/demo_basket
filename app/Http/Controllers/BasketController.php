@@ -6,88 +6,78 @@ use App\Models\Product;
 use App\Models\Basket;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Log;
+use Exception;
+use App\Services\BasketService;
 
 class BasketController extends Controller
 {
-    // Display the basket content
-    public function index()
+
+    public function index(BasketService $basketService)
     {
-        $userId = Auth::id();
-        $baskets = Basket::where('user_id', $userId)->get();
-        $products = Product::all();
+        try {
+            $userId = Auth::id();
 
-        $subtotal = 0;
-        $discount = 0;
-        // dd($baskets->toArray());
-        foreach ($baskets as $item) {
-            $quantity = $item->quantity;
-            $price = $item->product_price;
+            // ✅ Use service for logic
+            $summary = $basketService->getSummaryForUser($userId);
 
-            // Standard total for this product
-            $itemTotal = $price * $quantity;
-            $subtotal += $itemTotal;
+            $products = Product::all(); // If you still need it in the view
 
-            // Special offer: every second item is half price
-            $halfPriceCount = floor($quantity / 2);
-            $discount += ($price / 2) * $halfPriceCount;
+            return view('basket.index', array_merge($summary, [
+                'products' => $products
+            ]));
+        } catch (Exception $e) {
+            Log::error('Basket view failed: ' . $e->getMessage());
+            return redirect()->back()->with('error', 'Unable to load basket. Please try again later.');
         }
-
-        $subtotalAfterDiscount = $subtotal - $discount;
-
-        // Delivery charge rules
-        if ($subtotalAfterDiscount >= 90) {
-            $delivery = 0;
-        } elseif ($subtotalAfterDiscount >= 50) {
-            $delivery = 2.95;
-        } else {
-            $delivery = 4.95;
-        }
-
-        $total = $subtotalAfterDiscount + $delivery;
-        return view('basket.index', compact(
-            'baskets',
-            'subtotal',
-            'discount',
-            'products',
-            'delivery',
-            'total'
-        ));
     }
 
-    // Add product to the basket
+
     public function add(Request $request)
     {
-        $sku = $request->input('sku');
-        $product = Product::where('sku', $sku)->firstOrFail();
-
-        // Check if the product already exists in the user's basket
-        $userId = Auth::id();
-        $basketItem = Basket::where('user_id', $userId)->where('sku', $sku)->first();
-
-        if ($basketItem) {
-            // If the product already exists, update the quantity
-            $basketItem->quantity += 1;
-            $basketItem->save();
-        } else {
-            // Otherwise, create a new basket item
-            Basket::create([
-                'user_id' => $userId,
-                'sku' => $product->sku,
-                'product_name' => $product->name,
-                'product_price' => $product->price,
-                'quantity' => 1,
+        try {
+            $request->validate([
+                'sku' => 'required|string|exists:products,sku',
             ]);
-        }
 
-        return redirect()->route('basket.index')->with('success', 'Product added to basket!');
+            $sku = $request->input('sku');
+            $product = Product::where('sku', $sku)->first();
+
+            $userId = Auth::id();
+
+            $basketItem = Basket::where('user_id', $userId)
+                ->where('sku', $sku)
+                ->first();
+
+            if ($basketItem) {
+                $basketItem->increment('quantity');
+            } else {
+                Basket::create([
+                    'user_id' => $userId,
+                    'sku' => $product->sku,
+                    'product_name' => $product->name,
+                    'product_price' => $product->price,
+                    'quantity' => 1,
+                ]);
+            }
+
+            return redirect()->route('basket.index')->with('success', 'Product added to basket!');
+        } catch (Exception $e) {
+            Log::error('Add to basket failed: ' . $e->getMessage());
+            return redirect()->back()->with('error', 'Could not add product to basket. Please try again.');
+        }
     }
 
-    // Clear the user's basket
     public function clear()
     {
-        $userId = Auth::id();
-        Basket::where('user_id', $userId)->delete();
+        try {
+            $userId = Auth::id();
+            Basket::where('user_id', $userId)->delete();
 
-        return redirect()->route('basket.index')->with('success', 'Basket cleared!');
+            return redirect()->route('basket.index')->with('success', 'Basket cleared!');
+        } catch (Exception $e) {
+            Log::error('Clear basket failed: ' . $e->getMessage());
+            return redirect()->back()->with('error', 'Could not clear basket.');
+        }
     }
 }

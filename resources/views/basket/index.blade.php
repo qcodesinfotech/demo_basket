@@ -39,7 +39,7 @@
 
         <h2 class="h4 mb-3">Basket</h2>
 
-        @if(!empty($baskets))
+        @if(count($baskets))
             <ul class="list-group mb-3">
                 @foreach($baskets as $sku => $item)
                 <li class="list-group-item d-flex justify-content-between align-items-center">
